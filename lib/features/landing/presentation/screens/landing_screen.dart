@@ -9,6 +9,7 @@ import '../widgets/sections/manifesto_section.dart';
 import '../widgets/sections/donate_section.dart';
 import '../widgets/sections/final_cta_section.dart';
 import '../widgets/sections/footer_section.dart';
+import 'package:go_router/go_router.dart';
 
 class LandingScreen extends StatefulWidget {
   const LandingScreen({super.key});
@@ -47,7 +48,7 @@ class _LandingScreenState extends State<LandingScreen> {
               minHeight: 56,
               maxHeight: 56,
               child: LandingHeader(
-                onStartPressed: () {},
+                onStartPressed: () => context.go('/auth'),
                 onFeaturesPressed: () => _scrollTo(_featuresKey),
                 onGenresPressed: () => _scrollTo(_genresKey),
                 onManifestoPressed: () => _scrollTo(_manifestoKey),
@@ -59,7 +60,7 @@ class _LandingScreenState extends State<LandingScreen> {
           // Hero
           SliverToBoxAdapter(
             child: HeroSection(
-              onStartPressed: () {},
+              onStartPressed: () => context.go('/auth'),
               onSeeMorePressed: () => _scrollTo(_featuresKey),
             ),
           ),
