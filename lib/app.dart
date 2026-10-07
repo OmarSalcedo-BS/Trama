@@ -6,6 +6,7 @@ import 'features/auth/presentation/providers/auth_providers.dart';
 import 'features/auth/presentation/screens/auth_screen.dart';
 import 'features/landing/presentation/screens/landing_screen.dart';
 import 'features/projects/presentation/screens/dashboard_screen.dart';
+import 'features/project_detail/presentation/screens/project_detail_screen.dart';
 
 class TramaApp extends ConsumerWidget {
   const TramaApp({super.key});
@@ -32,9 +33,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isLoggedIn = user != null;
       final onAuthRoute = state.matchedLocation == '/auth';
       final onDashboardRoute = state.matchedLocation.startsWith('/dashboard');
+      final onProtectedRoute = state.matchedLocation.startsWith('/dashboard') ||
+          state.matchedLocation.startsWith('/project');
 
       // Si no hay sesión y quiere ir al dashboard → al auth
-      if (!isLoggedIn && onDashboardRoute) return '/auth';
+      if (!isLoggedIn && onDashboardRoute || !isLoggedIn && onProtectedRoute) return '/auth';
 
       // Si hay sesión y está en auth → al dashboard
       if (isLoggedIn && onAuthRoute) return '/dashboard';
@@ -53,6 +56,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/dashboard',
         builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: '/project/:id',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return ProjectDetailScreen(projectId: id);
+        },
       ),
     ],
   );

@@ -125,7 +125,6 @@ class _DashboardHeader extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          // Logo
           Row(
             children: [
               Container(
@@ -154,7 +153,6 @@ class _DashboardHeader extends ConsumerWidget {
             ],
           ),
           const Spacer(),
-          // Usuario
           _UserMenu(userName: userName),
         ],
       ),
@@ -359,9 +357,7 @@ class _ProjectsGrid extends ConsumerWidget {
     );
 
     if (confirmed == true) {
-      await ref
-          .read(projectsControllerProvider.notifier)
-          .delete(id);
+      await ref.read(projectsControllerProvider.notifier).delete(id);
     }
   }
 
@@ -389,10 +385,7 @@ class _ProjectsGrid extends ConsumerWidget {
             final project = projects[index];
             return ProjectCard(
               project: project,
-              onTap: () {
-                // TODO: navegar al detalle del proyecto
-                // context.go('/project/${project.id}');
-              },
+              onTap: () => context.go('/project/${project.id}'),
               onDelete: () => _confirmDelete(
                 context,
                 ref,
