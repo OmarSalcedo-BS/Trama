@@ -3,6 +3,9 @@ import '../../../../core/errors/app_exception.dart';
 import '../../domain/models/project.dart';
 import '../../domain/repositories/project_repository.dart';
 
+int _wordCount(String text) =>
+    RegExp(r'[^\s]+', unicode: true).allMatches(text).length;
+
 class SupabaseProjectRepository implements ProjectRepository {
   final sb.SupabaseClient _client;
 
@@ -55,7 +58,23 @@ class SupabaseProjectRepository implements ProjectRepository {
           .maybeSingle();
 
       if (data == null) return null;
-      return Project.fromJson(data);
+      final project = Map<String, dynamic>.from(data);
+      final chapters = await _client
+          .from('chapters')
+          .select('content')
+          .eq('project_id', id);
+      final characters = await _client
+          .from('characters')
+          .select('id')
+          .eq('project_id', id);
+      project['chapter_count'] = (chapters as List).length;
+      project['character_count'] = (characters as List).length;
+      project['word_count'] = chapters.fold<int>(
+        0,
+        (total, chapter) =>
+            total + _wordCount((chapter['content'] as String?) ?? ''),
+      );
+      return Project.fromJson(project);
     } catch (e) {
       if (e is AppException) rethrow;
       throw AppException('Error al cargar el proyecto: $e');
@@ -134,6 +153,7 @@ class SupabaseProjectRepository implements ProjectRepository {
       if (first is Map && first['count'] is int) {
         return first['count'] as int;
       }
+
     }
     return 0;
   }

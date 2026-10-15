@@ -18,6 +18,7 @@ class Project {
   // Campos derivados (se calculan al vuelo, no se guardan)
   final int chapterCount;
   final int characterCount;
+  final int wordCount;
 
   const Project({
     required this.id,
@@ -30,6 +31,7 @@ class Project {
     required this.updatedAt,
     this.chapterCount = 0,
     this.characterCount = 0,
+    this.wordCount = 0,
   });
 
   factory Project.fromJson(Map<String, dynamic> json) {
@@ -44,6 +46,7 @@ class Project {
       updatedAt: DateTime.parse(json['updated_at'] as String),
       chapterCount: (json['chapter_count'] as int?) ?? 0,
       characterCount: (json['character_count'] as int?) ?? 0,
+      wordCount: (json['word_count'] as int?) ?? 0,
     );
   }
 
@@ -77,6 +80,7 @@ class Project {
     DateTime? updatedAt,
     int? chapterCount,
     int? characterCount,
+    int? wordCount,
   }) {
     return Project(
       id: id ?? this.id,
@@ -89,6 +93,7 @@ class Project {
       updatedAt: updatedAt ?? this.updatedAt,
       chapterCount: chapterCount ?? this.chapterCount,
       characterCount: characterCount ?? this.characterCount,
+      wordCount: wordCount ?? this.wordCount,
     );
   }
 

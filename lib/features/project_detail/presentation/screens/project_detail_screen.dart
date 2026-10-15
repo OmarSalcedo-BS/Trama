@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../projects/presentation/providers/project_providers.dart';
 import '../providers/project_section_provider.dart';
 import '../widgets/project_sidebar.dart';
+import '../../../characters/presentation/screens/characters_list_screen.dart';
+import '../../../world_entries/presentation/screens/world_screen.dart';
+import '../../../story_tools/presentation/screens/story_tools_screens.dart';
+import '../../../chapters/presentation/screens/chapter_editor_screen.dart';
+import '../../../chapters/presentation/providers/chapter_providers.dart';
+import '../../../characters/presentation/providers/character_providers.dart';
+import '../../../import_export/presentation/screens/import_export_screen.dart';
 
 class ProjectDetailScreen extends ConsumerWidget {
   final String projectId;
@@ -30,9 +38,7 @@ class ProjectDetailScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(
-          child: CircularProgressIndicator(
-            color: AppColors.primaryContainer,
-          ),
+          child: CircularProgressIndicator(color: AppColors.primaryContainer),
         ),
         error: (e, _) => Center(
           child: Padding(
@@ -69,10 +75,7 @@ class _ProjectLayout extends ConsumerWidget {
   final String projectId;
   final String projectTitle;
 
-  const _ProjectLayout({
-    required this.projectId,
-    required this.projectTitle,
-  });
+  const _ProjectLayout({required this.projectId, required this.projectTitle});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -100,10 +103,7 @@ class _ProjectLayout extends ConsumerWidget {
                 onBack: () => context.go('/dashboard'),
               ),
               Expanded(
-                child: _SectionContent(
-                  projectId: projectId,
-                  section: section,
-                ),
+                child: _SectionContent(projectId: projectId, section: section),
               ),
             ],
           ),
@@ -159,10 +159,7 @@ class _TopBar extends StatelessWidget {
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            child: Text(
-              '/',
-              style: TextStyle(color: AppColors.outline),
-            ),
+            child: Text('/', style: TextStyle(color: AppColors.outline)),
           ),
           Text(
             sectionLabel,
@@ -183,23 +180,20 @@ class _SectionContent extends StatelessWidget {
   final String projectId;
   final ProjectSection section;
 
-  const _SectionContent({
-    required this.projectId,
-    required this.section,
-  });
+  const _SectionContent({required this.projectId, required this.section});
 
   @override
   Widget build(BuildContext context) {
     return switch (section) {
       ProjectSection.overview => _OverviewPlaceholder(projectId: projectId),
-      ProjectSection.chapters => _Placeholder('Capítulos / Editor'),
-      ProjectSection.characters => _Placeholder('Personajes'),
-      ProjectSection.worldEntries => _Placeholder('Fichas de mundo'),
-      ProjectSection.bestiary => _Placeholder('Bestiario'),
-      ProjectSection.timeline => _Placeholder('Cronología'),
-      ProjectSection.glossary => _Placeholder('Glosario'),
-      ProjectSection.relationships => _Placeholder('Relaciones'),
-      ProjectSection.export => _Placeholder('Exportar'),
+      ProjectSection.chapters => ChapterEditorScreen(projectId: projectId),
+      ProjectSection.characters => CharactersListScreen(projectId: projectId),
+      ProjectSection.worldEntries => WorldScreen(projectId: projectId),
+      ProjectSection.bestiary => BestiaryScreen(projectId: projectId),
+      ProjectSection.timeline => TimelineScreen(projectId: projectId),
+      ProjectSection.glossary => GlossaryScreen(projectId: projectId),
+      ProjectSection.relationships => RelationshipsScreen(projectId: projectId),
+      ProjectSection.export => ImportExportScreen(projectId: projectId),
     };
   }
 }
@@ -212,6 +206,8 @@ class _OverviewPlaceholder extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final projectAsync = ref.watch(projectByIdProvider(projectId));
+    final chaptersAsync = ref.watch(chaptersProvider(projectId));
+    final charactersAsync = ref.watch(charactersListProvider(projectId));
 
     return projectAsync.when(
       data: (project) {
@@ -226,11 +222,12 @@ class _OverviewPlaceholder extends ConsumerWidget {
                 children: [
                   Text(project.title, style: AppTypography.headlineLg),
                   const SizedBox(height: AppSpacing.md),
-                  if (project.synopsis != null)
-                    Text(
-                      project.synopsis!,
-                      style: AppTypography.manuscriptMd,
-                    ),
+                  Text(
+                    project.synopsis?.trim().isNotEmpty == true
+                        ? project.synopsis!
+                        : 'Tu espacio de trabajo para escribir, organizar y conectar cada parte de tu historia.',
+                    style: AppTypography.manuscriptMd,
+                  ),
                   const SizedBox(height: AppSpacing.xl),
                   Text('Estadísticas', style: AppTypography.headlineSm),
                   const SizedBox(height: AppSpacing.md),
@@ -238,19 +235,40 @@ class _OverviewPlaceholder extends ConsumerWidget {
                     children: [
                       _Stat(
                         label: 'Capítulos',
-                        value: '${project.chapterCount}',
+                        value:
+                            '${chaptersAsync.valueOrNull?.length ?? project.chapterCount}',
                       ),
                       const SizedBox(width: AppSpacing.md),
                       _Stat(
                         label: 'Personajes',
-                        value: '${project.characterCount}',
+                        value:
+                            '${charactersAsync.valueOrNull?.length ?? project.characterCount}',
                       ),
                       const SizedBox(width: AppSpacing.md),
                       _Stat(
-                        label: 'Género',
-                        value: project.genre ?? '—',
+                        label: 'Palabras',
+                        value:
+                            '${chaptersAsync.valueOrNull?.fold<int>(0, (total, chapter) => total + _wordCount(chapter.content)) ?? project.wordCount}',
                       ),
+                      const SizedBox(width: AppSpacing.md),
+                      _Stat(label: 'Género', value: project.genre ?? '—'),
                     ],
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  _OverviewGuidance(
+                    chapterCount:
+                        chaptersAsync.valueOrNull?.length ??
+                        project.chapterCount,
+                    characterCount:
+                        charactersAsync.valueOrNull?.length ??
+                        project.characterCount,
+                    wordCount:
+                        chaptersAsync.valueOrNull?.fold<int>(
+                          0,
+                          (total, chapter) =>
+                              total + _wordCount(chapter.content),
+                        ) ??
+                        project.wordCount,
                   ),
                 ],
               ),
@@ -262,6 +280,79 @@ class _OverviewPlaceholder extends ConsumerWidget {
       error: (e, _) => Center(child: Text(e.toString())),
     );
   }
+}
+
+int _wordCount(String text) =>
+    RegExp(r'[^\s]+', unicode: true).allMatches(text).length;
+
+class _OverviewGuidance extends StatelessWidget {
+  final int chapterCount;
+  final int characterCount;
+  final int wordCount;
+
+  const _OverviewGuidance({
+    required this.chapterCount,
+    required this.characterCount,
+    required this.wordCount,
+  });
+
+  @override
+  Widget build(BuildContext context) => Card(
+    color: AppColors.surfaceContainerLow,
+    child: Padding(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Estado del proyecto', style: AppTypography.headlineSm),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            wordCount == 0
+                ? 'Empieza creando un capítulo para que el editor pueda contar tus palabras y mostrar tu progreso.'
+                : 'Tu manuscrito ya tiene $wordCount palabras distribuidas en $chapterCount capítulos.',
+            style: AppTypography.uiBodyMd,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _OverviewPill(
+                icon: Icons.edit_note_outlined,
+                text: chapterCount == 0
+                    ? 'Crea tu primer capítulo'
+                    : '$chapterCount capítulos listos',
+              ),
+              _OverviewPill(
+                icon: Icons.people_outline,
+                text: characterCount == 0
+                    ? 'Añade personajes'
+                    : '$characterCount personajes conectados',
+              ),
+              _OverviewPill(
+                icon: Icons.menu_book_outlined,
+                text: 'Explora tus herramientas de mundo',
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _OverviewPill extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _OverviewPill({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) => Chip(
+    avatar: Icon(icon, size: 16),
+    label: Text(text),
+    visualDensity: VisualDensity.compact,
+  );
 }
 
 class _Stat extends StatelessWidget {
@@ -287,29 +378,6 @@ class _Stat extends StatelessWidget {
             Text(value, style: AppTypography.headlineSm),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Placeholder extends StatelessWidget {
-  final String label;
-
-  const _Placeholder(this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: AppTypography.headlineMd),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Sección en construcción',
-            style: AppTypography.uiBodySm,
-          ),
-        ],
       ),
     );
   }
