@@ -68,5 +68,7 @@ Backend: Supabase (PostgreSQL, Autenticación, Row Level Security).
 
 Arquitectura: Feature-First, con separación estricta de responsabilidades (Domain, Data, Presentation).
 
-📄 Licencia
+```
+
+# Licencia
 Este proyecto está bajo la licencia MIT (o la que decidas usar). Eres libre de usarlo, modificarlo y adaptarlo a tus necesidades.
