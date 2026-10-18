@@ -10,7 +10,8 @@ enum ProjectSection {
   timeline,
   glossary,
   relationships,
-  export;
+  export,
+  about;
 
   /// Etiqueta visible.
   String get label {
@@ -24,6 +25,7 @@ enum ProjectSection {
       case ProjectSection.glossary:      return 'Glosario';
       case ProjectSection.relationships: return 'Relaciones';
       case ProjectSection.export:        return 'Exportar';
+      case ProjectSection.about:         return 'Acerca de y Legal';
     }
   }
 }

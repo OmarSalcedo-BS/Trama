@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'core/config/app_config.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/providers/auth_providers.dart';
+import 'features/auth/presentation/screens/alpha_access_screen.dart';
 import 'features/auth/presentation/screens/auth_screen.dart';
 import 'features/characters/presentation/screens/character_form_screen.dart';
 import 'features/landing/presentation/screens/landing_screen.dart';
@@ -38,7 +40,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isLoggedIn = user != null;
 
       final location = state.matchedLocation;
-      final onAuthRoute = location == '/auth';
+      final onAuthRoute = location == '/auth' || location == '/auth-classic';
       final onProtectedRoute =
           location.startsWith('/dashboard') ||
           location.startsWith('/project');
@@ -61,6 +63,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/auth',
+        builder: (context, state) => AppConfig.isAlphaMode
+            ? const AlphaAccessScreen()
+            : const AuthScreen(),
+      ),
+      // Ruta de acceso clásico (útil para administración o pruebas sin alterar la alpha)
+      GoRoute(
+        path: '/auth-classic',
         builder: (context, state) => const AuthScreen(),
       ),
 

@@ -1,6 +1,8 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radii.dart';
@@ -211,6 +213,8 @@ class _ImportExportScreenState extends ConsumerState<ImportExportScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: AppSpacing.xl),
+              _FeedbackCard(projectId: widget.projectId),
             ],
           ),
         ),
@@ -265,3 +269,220 @@ class _PreviewCard extends StatelessWidget {
     );
   }
 }
+
+class _FeedbackCard extends StatefulWidget {
+  final String projectId;
+
+  const _FeedbackCard({required this.projectId});
+
+  @override
+  State<_FeedbackCard> createState() => _FeedbackCardState();
+}
+
+class _FeedbackCardState extends State<_FeedbackCard> {
+  final _textController = TextEditingController();
+  String _selectedCategory = 'Error o fallo';
+  bool _isSending = false;
+
+  static const _targetEmail = 'salcedosolarteomar@gmail.com';
+
+  final _categories = const [
+    'Error o fallo',
+    'Sugerencia de mejora',
+    'Comentario general',
+  ];
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _sendFeedback() async {
+    final text = _textController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor escribe tu comentario o reporte antes de enviar.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSending = true);
+
+    final projectShort = widget.projectId.length >= 8
+        ? widget.projectId.substring(0, 8)
+        : widget.projectId;
+
+    final subject = '[Trama Alpha] $_selectedCategory - Proyecto $projectShort';
+    final body = '''Hola Omar,
+
+Te envío este reporte sobre Trama Alpha:
+
+- Tipo: $_selectedCategory
+- ID de Proyecto: ${widget.projectId}
+- Fecha: ${DateTime.now().toLocal()}
+
+Detalles:
+$text
+
+---
+Enviado desde Trama Web Alpha''';
+
+    final emailUri = Uri(
+      scheme: 'mailto',
+      path: _targetEmail,
+      queryParameters: {
+        'subject': subject,
+        'body': body,
+      },
+    );
+
+    try {
+      final launched = await launchUrl(
+        emailUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        await _copyEmailFallback();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Abriendo tu gestor de correo para enviar el reporte.'),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      await _copyEmailFallback();
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  Future<void> _copyEmailFallback() async {
+    await Clipboard.setData(const ClipboardData(text: _targetEmail));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Se copió la dirección al portapapeles ($_targetEmail). Puedes enviar tu reporte manualmente.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadii.allMd,
+        side: const BorderSide(color: AppColors.outlineVariant, width: 0.8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryFixed,
+                    borderRadius: AppRadii.allSm,
+                  ),
+                  child: const Icon(
+                    Icons.rate_review_outlined,
+                    color: AppColors.primaryContainer,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Reportar error o enviar retroalimentación',
+                        style: AppTypography.headlineSm,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Tu opinión es vital en esta Alpha. Los informes llegan directamente a $_targetEmail',
+                        style: AppTypography.uiBodySm.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            Text('Tipo de informe', style: AppTypography.labelMd),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: _categories.map((cat) {
+                final isSelected = _selectedCategory == cat;
+                return ChoiceChip(
+                  label: Text(cat),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedCategory = cat);
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: AppSpacing.md),
+
+            Text('Descripción del reporte', style: AppTypography.labelMd),
+            const SizedBox(height: AppSpacing.xs),
+            TextField(
+              controller: _textController,
+              maxLines: 4,
+              style: AppTypography.uiBodyMd,
+              decoration: InputDecoration(
+                hintText:
+                    'Cuéntanos qué estabas haciendo, qué falló o qué función te gustaría que existiera...',
+                border: OutlineInputBorder(
+                  borderRadius: AppRadii.allSm,
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
+            Row(
+              children: [
+                FilledButton.icon(
+                  onPressed: _isSending ? null : _sendFeedback,
+                  icon: _isSending
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_outlined, size: 18),
+                  label: const Text('Enviar reporte por correo'),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                OutlinedButton.icon(
+                  onPressed: _copyEmailFallback,
+                  icon: const Icon(Icons.copy_outlined, size: 18),
+                  label: const Text('Copiar correo'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

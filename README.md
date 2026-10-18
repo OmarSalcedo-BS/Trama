@@ -131,3 +131,24 @@ contenido. No crea personajes ni fichas automáticamente.
 - Vínculos de worldbuilding después de recargar la aplicación.
 - RLS con dos usuarios y proyectos distintos.
 - Carga de la aplicación en una ventana privada del navegador.
+
+
+
+
+powershell -ExecutionPolicy Bypass -File scripts/build_web.ps1
+firebase deploy --only hosting
+
+
+
+# Generar un código
+python scripts/generate_alpha_invites.py --count 1
+
+# Generar N códigos para correos específicos (archivo) o códigos abiertos
+python scripts/generate_alpha_invites.py --file emails.txt
+python scripts/generate_alpha_invites.py --count 10
+
+# Generar código con un correo preasignado
+python scripts/generate_alpha_invites.py --email [EMAIL_ADDRESS]
+
+# Ejecutar en modo interactivo (pide opción)
+python scripts/generate_alpha_invites.py

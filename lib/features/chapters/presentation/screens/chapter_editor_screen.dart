@@ -1,12 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_radii.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/utils/dialogue_dash_input_formatter.dart';
+import '../../../../core/utils/language_tool_service.dart';
+import '../../../../core/utils/text_utils.dart';
+import '../../../../core/utils/trama_spell_check_service.dart';
+import '../../../../core/widgets/spell_check_dialog.dart';
 import '../../../characters/domain/models/character.dart';
 import '../../../characters/presentation/providers/character_providers.dart';
 import '../../../story_tools/domain/models/story_tool_models.dart';
@@ -29,14 +35,30 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
   final _contentFocus = FocusNode();
+
+  // Optimización de rendimiento:
+  // Notifiers desacoplados para evitar reconstruir el TextField en cada pulsación
+  late final ValueNotifier<int> _wordCountNotifier;
+  late final ValueNotifier<String> _analysisContentNotifier;
+
   Timer? _saveTimer;
+  Timer? _analysisDebounceTimer;
   bool _isSaving = false;
   bool _isDirty = false;
-  String _search = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _wordCountNotifier = ValueNotifier<int>(0);
+    _analysisContentNotifier = ValueNotifier<String>('');
+  }
 
   @override
   void dispose() {
     _saveTimer?.cancel();
+    _analysisDebounceTimer?.cancel();
+    _wordCountNotifier.dispose();
+    _analysisContentNotifier.dispose();
     _titleController.dispose();
     _contentController.dispose();
     _contentFocus.dispose();
@@ -53,11 +75,22 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
       _contentController.text = chapter.content;
       _isDirty = false;
     });
+    _wordCountNotifier.value = countWords(chapter.content);
+    _analysisContentNotifier.value = chapter.content;
   }
 
   void _onTextChanged() {
     if (_selectedChapter == null) return;
-    setState(() => _isDirty = true);
+    _isDirty = true;
+
+    // Debounce del análisis para mantener el editor ultra fluido a 60 FPS
+    _analysisDebounceTimer?.cancel();
+    _analysisDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _wordCountNotifier.value = countWords(_contentController.text);
+      _analysisContentNotifier.value = _contentController.text;
+    });
+
     _saveTimer?.cancel();
     _saveTimer = Timer(const Duration(milliseconds: 900), _saveNow);
   }
@@ -84,25 +117,6 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
         _isDirty = false;
       }
     });
-  }
-
-  void _onSearchChanged(String value) {
-    setState(() => _search = value);
-    final query = value.trim();
-    if (query.isEmpty) return;
-    final match = RegExp(
-      r'(?<![\p{L}\p{N}])' +
-          RegExp.escape(normalizeSearchText(query)) +
-          r'(?![\p{L}\p{N}])',
-      caseSensitive: false,
-      unicode: true,
-    ).firstMatch(normalizeSearchText(_contentController.text));
-    if (match != null) {
-      _contentController.selection = TextSelection(
-        baseOffset: match.start,
-        extentOffset: match.end,
-      );
-    }
   }
 
   Future<void> _createChapter(List<Chapter> chapters) async {
@@ -155,6 +169,61 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
       _titleController.clear();
       _contentController.clear();
     });
+    _wordCountNotifier.value = 0;
+    _analysisContentNotifier.value = '';
+  }
+
+  Future<void> _runDeepSpellCheck(Set<String> ignoredWords) async {
+    final currentText = _contentController.text;
+    if (currentText.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El capítulo está vacío para revisar.')),
+      );
+      return;
+    }
+
+    // Mostrar diálogo de carga breve
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.lg),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: AppSpacing.md),
+                Text('Analizando ortografía y gramática...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final issues = await LanguageToolService.checkText(
+      currentText,
+      ignoredWords: ignoredWords,
+    );
+
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // Cerrar diálogo de carga
+
+    final correctedText = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SpellCheckResultDialog(
+        initialText: currentText,
+        issues: issues,
+      ),
+    );
+
+    if (!mounted || correctedText == null) return;
+    if (correctedText != _contentController.text) {
+      _contentController.text = correctedText;
+      _onTextChanged();
+    }
   }
 
   @override
@@ -165,6 +234,7 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
       relationshipsStreamProvider(widget.projectId),
     );
     final bestiaryAsync = ref.watch(bestiaryProvider(widget.projectId));
+    final glossaryAsync = ref.watch(glossaryProvider(widget.projectId));
 
     return chaptersAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -177,16 +247,28 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
           });
         }
         final chapter = _selectedChapter;
+
+        final characters = charactersAsync.value ?? const <Character>[];
+        final glossary = glossaryAsync.value ?? const <GlossaryTerm>[];
+        final bestiary = bestiaryAsync.value ?? const <BestiaryEntry>[];
+
+        final ignoredWords = <String>{
+          for (final c in characters) ...c.searchableNames,
+          for (final g in glossary) g.term,
+          for (final b in bestiary) b.name,
+        };
+
+        final spellCheckService =
+            TramaSpellCheckService(ignoredWords: ignoredWords);
+
         return Column(
           children: [
             _EditorToolbar(
               chapter: chapter,
               chaptersCount: chapters.length,
-              wordCount: _wordCount(_contentController.text),
-              matchCount: _countMatches(_contentController.text, _search),
+              wordCountNotifier: _wordCountNotifier,
               isSaving: _isSaving,
-              search: _search,
-              onSearchChanged: _onSearchChanged,
+              onDeepSpellCheck: () => _runDeepSpellCheck(ignoredWords),
               onFocus: () => _contentFocus.requestFocus(),
               onSave: _saveNow,
             ),
@@ -200,7 +282,7 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
                           selectedId: _selectedId,
                           totalWords: chapters.fold<int>(
                             0,
-                            (sum, item) => sum + _wordCount(item.content),
+                            (sum, item) => sum + countWords(item.content),
                           ),
                           onSelect: _selectChapter,
                           onCreate: () => _createChapter(chapters),
@@ -212,17 +294,23 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
                             contentController: _contentController,
                             contentFocus: _contentFocus,
                             hasChapter: chapter != null,
-                            search: _search,
+                            spellCheckService: spellCheckService,
                             onChanged: _onTextChanged,
                           ),
                         ),
                         if (MediaQuery.of(context).size.width >= 1100)
-                          _ChapterInspector(
-                            content: _contentController.text,
-                            characters: charactersAsync.value ?? const [],
-                            relationships: relationshipsAsync.value ?? const [],
-                            bestiary: bestiaryAsync.value ?? const [],
-                            search: _search,
+                          ValueListenableBuilder<String>(
+                            valueListenable: _analysisContentNotifier,
+                            builder: (context, content, _) {
+                              return _ChapterInspector(
+                                content: content,
+                                characters: characters,
+                                relationships:
+                                    relationshipsAsync.value ?? const [],
+                                bestiary: bestiary,
+                                glossary: glossary,
+                              );
+                            },
                           ),
                       ],
                     ),
@@ -237,29 +325,25 @@ class _ChapterEditorScreenState extends ConsumerState<ChapterEditorScreen> {
 class _EditorToolbar extends StatelessWidget {
   final Chapter? chapter;
   final int chaptersCount;
-  final int wordCount;
-  final int matchCount;
+  final ValueNotifier<int> wordCountNotifier;
   final bool isSaving;
-  final String search;
-  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onDeepSpellCheck;
   final VoidCallback onFocus;
   final VoidCallback onSave;
 
   const _EditorToolbar({
     required this.chapter,
     required this.chaptersCount,
-    required this.wordCount,
-    required this.matchCount,
+    required this.wordCountNotifier,
     required this.isSaving,
-    required this.search,
-    required this.onSearchChanged,
+    required this.onDeepSpellCheck,
     required this.onFocus,
     required this.onSave,
   });
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 58,
+    height: 54,
     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
     decoration: const BoxDecoration(
       color: AppColors.surfaceContainerLowest,
@@ -276,29 +360,26 @@ class _EditorToolbar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: AppSpacing.md),
-        Text(
-          '$wordCount palabras',
-          style: AppTypography.labelMd.copyWith(fontFamily: 'monospace'),
-        ),
-        if (search.trim().isNotEmpty) ...[
-          const SizedBox(width: AppSpacing.md),
-          Text(
-            '$matchCount coincidencias',
-            style: AppTypography.labelMd.copyWith(
-              color: matchCount == 0
-                  ? AppColors.error
-                  : AppColors.primaryContainer,
-            ),
+        ValueListenableBuilder<int>(
+          valueListenable: wordCountNotifier,
+          builder: (context, count, _) => Text(
+            '$count palabras',
+            style: AppTypography.labelMd.copyWith(fontFamily: 'monospace'),
           ),
-        ],
+        ),
         const Spacer(),
-        _SearchField(value: search, onChanged: onSearchChanged),
-        const SizedBox(width: AppSpacing.sm),
+        IconButton(
+          tooltip: 'Revisión ortográfica y gramatical profunda',
+          onPressed: onDeepSpellCheck,
+          icon: const Icon(Icons.spellcheck, size: 20),
+        ),
+        const SizedBox(width: AppSpacing.xs),
         IconButton(
           tooltip: 'Enfocar editor',
           onPressed: onFocus,
           icon: const Icon(Icons.center_focus_strong_outlined, size: 19),
         ),
+        const SizedBox(width: AppSpacing.xs),
         IconButton(
           tooltip: 'Guardar ahora',
           onPressed: onSave,
@@ -396,7 +477,7 @@ class _ChapterRail extends StatelessWidget {
                                   ),
                                 ),
                                 Text(
-                                  '${_wordCount(chapter.content)} palabras',
+                                  '${countWords(chapter.content)} palabras',
                                   style: AppTypography.labelXs,
                                 ),
                               ],
@@ -446,7 +527,7 @@ class _ManuscriptEditor extends StatelessWidget {
   final TextEditingController contentController;
   final FocusNode contentFocus;
   final bool hasChapter;
-  final String search;
+  final SpellCheckService spellCheckService;
   final VoidCallback onChanged;
 
   const _ManuscriptEditor({
@@ -454,7 +535,7 @@ class _ManuscriptEditor extends StatelessWidget {
     required this.contentController,
     required this.contentFocus,
     required this.hasChapter,
-    required this.search,
+    required this.spellCheckService,
     required this.onChanged,
   });
 
@@ -492,20 +573,31 @@ class _ManuscriptEditor extends StatelessWidget {
                 focusNode: contentFocus,
                 enabled: hasChapter,
                 onChanged: (_) => onChanged(),
-                minLines: 22,
+                inputFormatters: [
+                  DialogueDashInputFormatter(),
+                ],
+                minLines: 24,
                 maxLines: null,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
                 autocorrect: true,
                 enableSuggestions: true,
-                spellCheckConfiguration: const SpellCheckConfiguration(),
+                spellCheckConfiguration: SpellCheckConfiguration(
+                  spellCheckService: spellCheckService,
+                  misspelledTextStyle: const TextStyle(
+                    decoration: TextDecoration.underline,
+                    decorationColor: AppColors.error,
+                    decorationStyle: TextDecorationStyle.wavy,
+                    decorationThickness: 1.5,
+                  ),
+                ),
                 style: AppTypography.manuscriptLg,
-                decoration: InputDecoration(
+                cursorColor: AppColors.primaryContainer,
+                decoration: const InputDecoration(
                   hintText: 'Empieza a escribir tu capítulo...',
                   filled: false,
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
-                  suffixText: search.isEmpty ? null : 'Buscar: $search',
                 ),
               ),
             ],
@@ -516,88 +608,46 @@ class _ManuscriptEditor extends StatelessWidget {
   );
 }
 
-class _SearchField extends StatefulWidget {
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  const _SearchField({required this.value, required this.onChanged});
-
-  @override
-  State<_SearchField> createState() => _SearchFieldState();
-}
-
-class _SearchFieldState extends State<_SearchField> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.value);
-  }
-
-  @override
-  void didUpdateWidget(covariant _SearchField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value && _controller.text != widget.value) {
-      _controller.value = TextEditingValue(
-        text: widget.value,
-        selection: TextSelection.collapsed(offset: widget.value.length),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 190,
-    child: TextField(
-      controller: _controller,
-      onChanged: widget.onChanged,
-      decoration: const InputDecoration(
-        hintText: 'Buscar en el capítulo',
-        prefixIcon: Icon(Icons.search, size: 17),
-        isDense: true,
-      ),
-    ),
-  );
-}
-
 class _ChapterInspector extends StatelessWidget {
   final String content;
   final List<Character> characters;
   final List<CharacterRelationship> relationships;
   final List<BestiaryEntry> bestiary;
-  final String search;
+  final List<GlossaryTerm> glossary;
 
   const _ChapterInspector({
     required this.content,
     required this.characters,
     required this.relationships,
     required this.bestiary,
-    required this.search,
+    required this.glossary,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Normalizar el texto completo una sola vez para que la búsqueda sea ultra rápida
+    final normalizedContent = normalizeSearchText(content);
+
     final present = characters.where((character) {
       return character.searchableNames.any(
-        (name) => containsSearchWord(content, name),
+        (name) => fastContainsNormalized(normalizedContent, name),
       );
     }).toList();
+
     final presentIds = present.map((character) => character.id).toSet();
     final sceneRelations = relationships.where((relation) {
       return presentIds.contains(relation.sourceCharacterId) &&
           presentIds.contains(relation.targetCharacterId);
     }).toList();
+
     final presentBeasts = bestiary.where((entry) {
-      return containsSearchWord(content, entry.name);
+      return fastContainsNormalized(normalizedContent, entry.name);
     }).toList();
-    final matchCount = _countMatches(content, search);
+
+    final presentGlossary = glossary.where((entry) {
+      return fastContainsNormalized(normalizedContent, entry.term);
+    }).toList();
+
     final names = {
       for (final character in characters) character.id: character.fullName,
     };
@@ -606,31 +656,12 @@ class _ChapterInspector extends StatelessWidget {
       width: 255,
       padding: const EdgeInsets.all(AppSpacing.md),
       color: AppColors.surfaceContainerLowest,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ListView(
         children: [
           Text('INSPECTOR DE ESCENA', style: AppTypography.labelXs),
-          if (search.trim().isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              matchCount == 0
-                  ? 'SIN COINCIDENCIAS'
-                  : '$matchCount COINCIDENCIAS',
-              style: AppTypography.labelXs.copyWith(
-                color: matchCount == 0
-                    ? AppColors.error
-                    : AppColors.primaryContainer,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              matchCount == 0
-                  ? 'No se encontró esa palabra en el capítulo.'
-                  : 'La búsqueda está activa en el manuscrito.',
-              style: AppTypography.uiBodySm,
-            ),
-          ],
           const SizedBox(height: AppSpacing.lg),
+
+          // 1. Personajes
           Text('PERSONAJES EN EL CAPÍTULO', style: AppTypography.labelXs),
           const SizedBox(height: AppSpacing.sm),
           if (present.isEmpty)
@@ -653,6 +684,39 @@ class _ChapterInspector extends StatelessWidget {
                   .toList(),
             ),
           const SizedBox(height: AppSpacing.lg),
+
+          // 2. Glosario
+          Text('GLOSARIO EN EL CAPÍTULO', style: AppTypography.labelXs),
+          const SizedBox(height: AppSpacing.sm),
+          if (presentGlossary.isEmpty)
+            Text(
+              'Aún no se detectan términos del glosario.',
+              style: AppTypography.uiBodySm,
+            )
+          else
+            Wrap(
+              spacing: 5,
+              runSpacing: 5,
+              children: presentGlossary
+                  .map(
+                    (item) => Tooltip(
+                      message: item.definition.isNotEmpty
+                          ? item.definition
+                          : 'Sin definición registrada',
+                      child: Chip(
+                        label: Text(item.term),
+                        avatar: const CircleAvatar(
+                          child: Icon(Icons.menu_book_outlined, size: 13),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // 3. Criaturas / Bestiario
           Text('CRIATURAS EN EL CAPÍTULO', style: AppTypography.labelXs),
           const SizedBox(height: AppSpacing.sm),
           if (presentBeasts.isEmpty)
@@ -677,6 +741,8 @@ class _ChapterInspector extends StatelessWidget {
                   .toList(),
             ),
           const SizedBox(height: AppSpacing.lg),
+
+          // 4. Relaciones
           Text('RELACIONES ACTIVAS', style: AppTypography.labelXs),
           const SizedBox(height: AppSpacing.sm),
           if (sceneRelations.isEmpty)
@@ -766,21 +832,4 @@ Future<String?> _chapterTitleDialog(BuildContext context) async {
   );
   controller.dispose();
   return result;
-}
-
-int _wordCount(String text) {
-  return RegExp(
-    r"\b[\wÀ-ÿ]+(?:['’-][\wÀ-ÿ]+)*\b",
-    unicode: true,
-  ).allMatches(text).length;
-}
-
-int _countMatches(String content, String query) {
-  final cleanQuery = normalizeSearchText(query);
-  if (cleanQuery.isEmpty) return 0;
-  return RegExp(
-    r'(?<![\p{L}\p{N}])' + RegExp.escape(cleanQuery) + r'(?![\p{L}\p{N}])',
-    caseSensitive: false,
-    unicode: true,
-  ).allMatches(normalizeSearchText(content)).length;
 }

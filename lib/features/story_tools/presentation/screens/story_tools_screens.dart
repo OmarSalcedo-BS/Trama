@@ -10,8 +10,10 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../characters/domain/models/character.dart';
 import '../../../characters/presentation/providers/character_providers.dart';
+import '../../../../core/utils/relationship_layout_utils.dart';
 import '../../domain/models/story_tool_models.dart';
 import '../providers/story_tools_providers.dart';
+import '../widgets/interactive_relationships_graph.dart';
 
 class DraftNotesScreen extends ConsumerWidget {
   final String projectId;
@@ -1240,62 +1242,10 @@ class _RelationshipsContentState extends ConsumerState<_RelationshipsContent> {
   String _filter = 'Todos';
   String? _selectedCharacterId;
   String? _selectedLinkId;
-  double _zoom = 1;
-  bool _forceLayout = false;
-
-  List<Character> get _visibleCharacters {
-    final normalized = normalizeSearchText(_query);
-    return widget.characters.where((character) {
-      final matchesQuery =
-          normalized.isEmpty ||
-          character.searchableNames.any((name) => name.contains(normalized));
-      return matchesQuery;
-    }).toList();
-  }
-
-  List<CharacterRelationship> get _visibleLinks {
-    final visibleIds = _visibleCharacters
-        .map((character) => character.id)
-        .toSet();
-    return widget.links.where((link) {
-      final matchesNodes =
-          visibleIds.contains(link.sourceCharacterId) &&
-          visibleIds.contains(link.targetCharacterId);
-      return matchesNodes && _matchesFilter(link.relationType);
-    }).toList();
-  }
-
-  bool _matchesFilter(String relation) {
-    if (_filter == 'Todos') return true;
-    final value = normalizeSearchText(relation);
-    return switch (_filter) {
-      'Familiar' =>
-        value.contains('famil') ||
-            value.contains('padre') ||
-            value.contains('madre') ||
-            value.contains('hijo') ||
-            value.contains('herman'),
-      'Romance' =>
-        value.contains('pareja') ||
-            value.contains('romance') ||
-            value.contains('amor') ||
-            value.contains('conyuge'),
-      'Rivalidad' =>
-        value.contains('rival') ||
-            value.contains('enem') ||
-            value.contains('odio'),
-      'Aliados' =>
-        value.contains('aliad') ||
-            value.contains('negocio') ||
-            value.contains('amig'),
-      _ => true,
-    };
-  }
 
   @override
   Widget build(BuildContext context) {
-    final characters = _visibleCharacters;
-    final links = _visibleLinks;
+    final availableFilters = extractUniqueRelationTypes(widget.links);
     final selectedCharacter = _selectedCharacterId == null
         ? null
         : widget.characters.cast<Character?>().firstWhere(
@@ -1308,11 +1258,13 @@ class _RelationshipsContentState extends ConsumerState<_RelationshipsContent> {
             (link) => link?.id == _selectedLinkId,
             orElse: () => null,
           );
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final inspectorVisible =
             constraints.maxWidth >= 880 &&
             (selectedCharacter != null || selectedLink != null);
+
         return Stack(
           children: [
             Positioned.fill(
@@ -1325,46 +1277,31 @@ class _RelationshipsContentState extends ConsumerState<_RelationshipsContent> {
                       linksCount: widget.links.length,
                       query: _query,
                       filter: _filter,
+                      availableFilters: availableFilters,
                       onQueryChanged: (value) => setState(() => _query = value),
-                      onFilterChanged: (value) =>
-                          setState(() => _filter = value),
+                      onFilterChanged: (value) => setState(() => _filter = value),
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     Expanded(
                       child: Stack(
                         children: [
                           Positioned.fill(
-                            child: _RelationshipCanvas(
-                              characters: characters,
-                              links: links,
-                              zoom: _zoom,
-                              forceLayout: _forceLayout,
+                            child: InteractiveRelationshipsGraph(
+                              projectId: widget.projectId,
+                              characters: widget.characters,
+                              links: widget.links,
                               selectedCharacterId: _selectedCharacterId,
                               selectedLinkId: _selectedLinkId,
-                              onTap: _selectAt,
-                            ),
-                          ),
-                          if (characters.isEmpty)
-                            const Center(
-                              child: _EmptyTool(
-                                text: 'No hay personajes que coincidan con el filtro.',
-                              ),
-                            ),
-                          Positioned(
-                            left: AppSpacing.md,
-                            bottom: AppSpacing.md,
-                            child: _GraphControls(
-                              zoom: _zoom,
-                              forceLayout: _forceLayout,
-                              onZoomIn: () => setState(
-                                () => _zoom = (_zoom + .15).clamp(.6, 2.2),
-                              ),
-                              onZoomOut: () => setState(
-                                () => _zoom = (_zoom - .15).clamp(.6, 2.2),
-                              ),
-                              onFit: () => setState(() => _zoom = 1),
-                              onToggleLayout: () =>
-                                  setState(() => _forceLayout = !_forceLayout),
+                              onSelectCharacter: (id) => setState(() {
+                                _selectedCharacterId = id;
+                                _selectedLinkId = null;
+                              }),
+                              onSelectLink: (id) => setState(() {
+                                _selectedLinkId = id;
+                                _selectedCharacterId = null;
+                              }),
+                              query: _query,
+                              filter: _filter,
                             ),
                           ),
                           Positioned(
@@ -1411,46 +1348,6 @@ class _RelationshipsContentState extends ConsumerState<_RelationshipsContent> {
         );
       },
     );
-  }
-
-  void _selectAt(Offset localPosition, Size size) {
-    final positions = _graphPositions(
-      _visibleCharacters,
-      size,
-      _forceLayout,
-      _zoom,
-    );
-    String? characterId;
-    for (final entry in positions.entries) {
-      if ((entry.value - localPosition).distance <= 34) {
-        characterId = entry.key;
-        break;
-      }
-    }
-    if (characterId != null) {
-      setState(() {
-        _selectedCharacterId = characterId;
-        _selectedLinkId = null;
-      });
-      return;
-    }
-    for (final link in _visibleLinks) {
-      final source = positions[link.sourceCharacterId];
-      final target = positions[link.targetCharacterId];
-      if (source != null &&
-          target != null &&
-          _distanceToSegment(localPosition, source, target) < 14) {
-        setState(() {
-          _selectedLinkId = link.id;
-          _selectedCharacterId = null;
-        });
-        return;
-      }
-    }
-    setState(() {
-      _selectedCharacterId = null;
-      _selectedLinkId = null;
-    });
   }
 
   Future<void> _addRelationship(BuildContext context) async {
@@ -1523,6 +1420,7 @@ class _GraphToolbar extends StatelessWidget {
   final int linksCount;
   final String query;
   final String filter;
+  final List<String> availableFilters;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<String> onFilterChanged;
 
@@ -1531,6 +1429,7 @@ class _GraphToolbar extends StatelessWidget {
     required this.linksCount,
     required this.query,
     required this.filter,
+    required this.availableFilters,
     required this.onQueryChanged,
     required this.onFilterChanged,
   });
@@ -1551,11 +1450,11 @@ class _GraphToolbar extends StatelessWidget {
         ),
       ),
       SizedBox(
-        width: 210,
+        width: 220,
         child: TextField(
           onChanged: onQueryChanged,
           decoration: const InputDecoration(
-            hintText: 'Buscar personaje',
+            hintText: 'Buscar personaje o vínculos',
             prefixIcon: Icon(Icons.search, size: 18),
             isDense: true,
           ),
@@ -1563,15 +1462,16 @@ class _GraphToolbar extends StatelessWidget {
       ),
       const SizedBox(width: AppSpacing.sm),
       SizedBox(
-        width: 130,
+        width: 140,
         child: DropdownButtonFormField<String>(
-          initialValue: filter,
+          key: ValueKey(filter),
+          initialValue: availableFilters.contains(filter) ? filter : 'Todos',
           isDense: true,
           decoration: const InputDecoration(
             labelText: 'Vínculo',
             contentPadding: EdgeInsets.symmetric(horizontal: 10),
           ),
-          items: const ['Todos', 'Familiar', 'Romance', 'Rivalidad', 'Aliados']
+          items: availableFilters
               .map(
                 (value) => DropdownMenuItem(value: value, child: Text(value)),
               )
@@ -1583,189 +1483,6 @@ class _GraphToolbar extends StatelessWidget {
       ),
     ],
   );
-}
-
-class _GraphControls extends StatelessWidget {
-  final double zoom;
-  final bool forceLayout;
-  final VoidCallback onZoomIn;
-  final VoidCallback onZoomOut;
-  final VoidCallback onFit;
-  final VoidCallback onToggleLayout;
-
-  const _GraphControls({
-    required this.zoom,
-    required this.forceLayout,
-    required this.onZoomIn,
-    required this.onZoomOut,
-    required this.onFit,
-    required this.onToggleLayout,
-  });
-
-  @override
-  Widget build(BuildContext context) => Card(
-    margin: EdgeInsets.zero,
-    child: Row(
-      children: [
-        IconButton(
-          onPressed: onZoomOut,
-          icon: const Icon(Icons.remove),
-          tooltip: 'Alejar',
-        ),
-        Text('${(zoom * 100).round()}%', style: AppTypography.labelXs),
-        IconButton(
-          onPressed: onZoomIn,
-          icon: const Icon(Icons.add),
-          tooltip: 'Acercar',
-        ),
-        IconButton(
-          onPressed: onFit,
-          icon: const Icon(Icons.fit_screen_outlined),
-          tooltip: 'Reencuadrar',
-        ),
-        const VerticalDivider(width: 1),
-        IconButton(
-          onPressed: onToggleLayout,
-          icon: Icon(forceLayout ? Icons.hub : Icons.account_tree_outlined),
-          tooltip: 'Alternar distribución',
-        ),
-      ],
-    ),
-  );
-}
-
-class _RelationshipCanvas extends StatelessWidget {
-  final List<Character> characters;
-  final List<CharacterRelationship> links;
-  final double zoom;
-  final bool forceLayout;
-  final String? selectedCharacterId;
-  final String? selectedLinkId;
-  final void Function(Offset, Size) onTap;
-
-  const _RelationshipCanvas({
-    required this.characters,
-    required this.links,
-    required this.zoom,
-    required this.forceLayout,
-    required this.selectedCharacterId,
-    required this.selectedLinkId,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTapUp: (details) => onTap(details.localPosition, context.size!),
-    child: CustomPaint(
-      painter: _RelationshipCanvasPainter(
-        characters: characters,
-        links: links,
-        zoom: zoom,
-        forceLayout: forceLayout,
-        selectedCharacterId: selectedCharacterId,
-        selectedLinkId: selectedLinkId,
-      ),
-      child: const SizedBox.expand(),
-    ),
-  );
-}
-
-class _RelationshipCanvasPainter extends CustomPainter {
-  final List<Character> characters;
-  final List<CharacterRelationship> links;
-  final double zoom;
-  final bool forceLayout;
-  final String? selectedCharacterId;
-  final String? selectedLinkId;
-
-  _RelationshipCanvasPainter({
-    required this.characters,
-    required this.links,
-    required this.zoom,
-    required this.forceLayout,
-    required this.selectedCharacterId,
-    required this.selectedLinkId,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final background = Paint()..color = AppColors.background;
-    canvas.drawRect(Offset.zero & size, background);
-    final dotPaint = Paint()
-      ..color = AppColors.outlineVariant.withValues(alpha: .35)
-      ..strokeWidth = 1;
-    for (var x = 12.0; x < size.width; x += 24) {
-      for (var y = 12.0; y < size.height; y += 24) {
-        canvas.drawCircle(Offset(x, y), 1, dotPaint);
-      }
-    }
-    final positions = _graphPositions(characters, size, forceLayout, zoom);
-    final names = {
-      for (final character in characters) character.id: character.fullName,
-    };
-    for (final link in links) {
-      final from = positions[link.sourceCharacterId];
-      final to = positions[link.targetCharacterId];
-      if (from == null || to == null) continue;
-      final paint = Paint()
-        ..color = _relationColor(link.relationType)
-        ..strokeWidth = link.id == selectedLinkId ? 3.5 : 2
-        ..style = PaintingStyle.stroke;
-      if (_isTense(link.relationType)) {
-        _drawDashedLine(canvas, from, to, paint);
-      } else {
-        canvas.drawLine(from, to, paint);
-      }
-      final midpoint = Offset((from.dx + to.dx) / 2, (from.dy + to.dy) / 2);
-      final label = TextPainter(
-        text: TextSpan(
-          text: link.relationType,
-          style: AppTypography.labelXs.copyWith(
-            color: _relationColor(link.relationType),
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: 110);
-      label.paint(canvas, midpoint + const Offset(5, -18));
-    }
-    for (final character in characters) {
-      final center = positions[character.id]!;
-      final selected = character.id == selectedCharacterId;
-      final radius = selected ? 34.0 : 30.0;
-      final fill = Paint()..color = AppColors.primaryContainer;
-      final border = Paint()
-        ..color = selected ? AppColors.primary : AppColors.outline
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = selected ? 3 : 1.5;
-      canvas.drawCircle(center, radius, fill);
-      canvas.drawCircle(center, radius, border);
-      final initial = TextPainter(
-        text: TextSpan(
-          text: character.initial,
-          style: AppTypography.headlineMd.copyWith(color: AppColors.onPrimary),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      initial.paint(
-        canvas,
-        center - Offset(initial.width / 2, initial.height / 2),
-      );
-      final label = TextPainter(
-        text: TextSpan(
-          text: names[character.id],
-          style: AppTypography.labelMd.copyWith(color: AppColors.onSurface),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: 160);
-      label.paint(
-        canvas,
-        Offset(center.dx - label.width / 2, center.dy + radius + 7),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RelationshipCanvasPainter oldDelegate) => true;
 }
 
 class _RelationshipInspector extends StatelessWidget {
@@ -1860,73 +1577,6 @@ class _RelationshipInspector extends StatelessWidget {
   }
 }
 
-Map<String, Offset> _graphPositions(
-  List<Character> characters,
-  Size size,
-  bool forceLayout,
-  double zoom,
-) {
-  final positions = <String, Offset>{};
-  if (characters.isEmpty) return positions;
-  final center = Offset(size.width / 2, size.height / 2);
-  final radius =
-      math.min(size.width, size.height) * (forceLayout ? .28 : .32) * zoom;
-  for (var index = 0; index < characters.length; index++) {
-    final angle = -math.pi / 2 + index * 2 * math.pi / characters.length;
-    positions[characters[index].id] =
-        center + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
-  }
-  return positions;
-}
-
-double _distanceToSegment(Offset point, Offset start, Offset end) {
-  final delta = end - start;
-  final lengthSquared = delta.distanceSquared;
-  if (lengthSquared == 0) return (point - start).distance;
-  final projection =
-      ((point - start).dx * delta.dx + (point - start).dy * delta.dy) /
-      lengthSquared;
-  final t = projection.clamp(0.0, 1.0);
-  return (point - (start + delta * t)).distance;
-}
-
-Color _relationColor(String relation) {
-  final value = normalizeSearchText(relation);
-  if (value.contains('famil') ||
-      value.contains('padre') ||
-      value.contains('madre') ||
-      value.contains('hijo')) {
-    return Colors.cyan;
-  }
-  if (value.contains('pareja') ||
-      value.contains('romance') ||
-      value.contains('amor')) {
-    return Colors.pinkAccent;
-  }
-  if (value.contains('rival') ||
-      value.contains('enem') ||
-      value.contains('odio')) {
-    return Colors.deepOrange;
-  }
-  return Colors.green;
-}
-
-bool _isTense(String relation) {
-  final value = normalizeSearchText(relation);
-  return value.contains('rival') ||
-      value.contains('enem') ||
-      value.contains('tens');
-}
-
-void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
-  final distance = (end - start).distance;
-  final direction = (end - start) / distance;
-  for (var offset = 0.0; offset < distance; offset += 12) {
-    final from = start + direction * offset;
-    final to = start + direction * math.min(offset + 6, distance);
-    canvas.drawLine(from, to, paint);
-  }
-}
 
 class _ToolList<T> extends StatelessWidget {
   final String title;

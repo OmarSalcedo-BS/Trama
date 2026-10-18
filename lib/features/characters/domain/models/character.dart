@@ -1,6 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/utils/text_utils.dart';
 import '../constants/character_roles.dart';
+
+export '../../../../core/utils/text_utils.dart'
+    show normalizeSearchText, containsSearchWord;
 
 @immutable
 class Character {
@@ -244,27 +248,4 @@ class CharacterPatch {
           MapEntry(key, value is String && value.trim().isEmpty ? null : value),
     );
   }
-}
-
-String normalizeSearchText(String value) {
-  return value
-      .toLowerCase()
-      .replaceAll(RegExp('[áàäâãå]'), 'a')
-      .replaceAll(RegExp('[éèëê]'), 'e')
-      .replaceAll(RegExp('[íìïî]'), 'i')
-      .replaceAll(RegExp('[óòöôõ]'), 'o')
-      .replaceAll(RegExp('[úùüû]'), 'u')
-      .replaceAll('ñ', 'n')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-}
-
-bool containsSearchWord(String text, String query) {
-  final normalizedText = normalizeSearchText(text);
-  final normalizedQuery = normalizeSearchText(query);
-  if (normalizedQuery.isEmpty) return false;
-  return RegExp(
-    r'(?<![\p{L}\p{N}])' + RegExp.escape(normalizedQuery) + r'(?![\p{L}\p{N}])',
-    unicode: true,
-  ).hasMatch(normalizedText);
 }

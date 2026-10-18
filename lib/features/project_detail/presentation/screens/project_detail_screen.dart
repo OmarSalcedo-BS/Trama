@@ -15,6 +15,7 @@ import '../../../chapters/presentation/screens/chapter_editor_screen.dart';
 import '../../../chapters/presentation/providers/chapter_providers.dart';
 import '../../../characters/presentation/providers/character_providers.dart';
 import '../../../import_export/presentation/screens/import_export_screen.dart';
+import 'about_legal_screen.dart';
 
 class ProjectDetailScreen extends ConsumerWidget {
   final String projectId;
@@ -71,44 +72,91 @@ class ProjectDetailScreen extends ConsumerWidget {
   }
 }
 
-class _ProjectLayout extends ConsumerWidget {
+class _ProjectLayout extends ConsumerStatefulWidget {
   final String projectId;
   final String projectTitle;
 
   const _ProjectLayout({required this.projectId, required this.projectTitle});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final section = ref.watch(activeSectionProvider(projectId));
+  ConsumerState<_ProjectLayout> createState() => _ProjectLayoutState();
+}
+
+class _ProjectLayoutState extends ConsumerState<_ProjectLayout> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _isSidebarVisible = true;
+
+  void _toggleSidebar() {
+    setState(() {
+      _isSidebarVisible = !_isSidebarVisible;
+    });
+  }
+
+  void _openMobileDrawer() {
+    _scaffoldKey.currentState?.openDrawer();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final section = ref.watch(activeSectionProvider(widget.projectId));
     final isNarrow = MediaQuery.of(context).size.width < 900;
 
-    return Row(
-      children: [
-        // Sidebar (solo en pantallas anchas por ahora)
-        if (!isNarrow)
-          ProjectSidebar(
-            projectId: projectId,
-            projectTitle: projectTitle,
-            onBackToDashboard: () => context.go('/dashboard'),
-          ),
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: AppColors.background,
+      drawer: isNarrow
+          ? Drawer(
+              backgroundColor: AppColors.surfaceContainerLowest,
+              child: SafeArea(
+                child: ProjectSidebar(
+                  projectId: widget.projectId,
+                  projectTitle: widget.projectTitle,
+                  width: null,
+                  onBackToDashboard: () {
+                    Navigator.of(context).pop();
+                    context.go('/dashboard');
+                  },
+                  onSectionSelected: () {
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ),
+            )
+          : null,
+      body: Row(
+        children: [
+          // Sidebar (solo en pantallas de escritorio/anchas y cuando no esté colapsado)
+          if (!isNarrow && _isSidebarVisible)
+            ProjectSidebar(
+              projectId: widget.projectId,
+              projectTitle: widget.projectTitle,
+              onBackToDashboard: () => context.go('/dashboard'),
+              onCollapse: _toggleSidebar,
+            ),
 
-        // Área de contenido
-        Expanded(
-          child: Column(
-            children: [
-              _TopBar(
-                projectTitle: projectTitle,
-                sectionLabel: section.label,
-                showBackButton: isNarrow,
-                onBack: () => context.go('/dashboard'),
-              ),
-              Expanded(
-                child: _SectionContent(projectId: projectId, section: section),
-              ),
-            ],
+          // Área de contenido principal
+          Expanded(
+            child: Column(
+              children: [
+                _TopBar(
+                  projectTitle: widget.projectTitle,
+                  sectionLabel: section.label,
+                  isNarrow: isNarrow,
+                  isSidebarVisible: _isSidebarVisible,
+                  onMenuPressed: isNarrow ? _openMobileDrawer : _toggleSidebar,
+                  onBack: () => context.go('/dashboard'),
+                ),
+                Expanded(
+                  child: _SectionContent(
+                    projectId: widget.projectId,
+                    section: section,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -116,13 +164,17 @@ class _ProjectLayout extends ConsumerWidget {
 class _TopBar extends StatelessWidget {
   final String projectTitle;
   final String sectionLabel;
-  final bool showBackButton;
+  final bool isNarrow;
+  final bool isSidebarVisible;
+  final VoidCallback onMenuPressed;
   final VoidCallback onBack;
 
   const _TopBar({
     required this.projectTitle,
     required this.sectionLabel,
-    required this.showBackButton,
+    required this.isNarrow,
+    required this.isSidebarVisible,
+    required this.onMenuPressed,
     required this.onBack,
   });
 
@@ -130,7 +182,9 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      padding: EdgeInsets.symmetric(
+        horizontal: isNarrow ? AppSpacing.sm : AppSpacing.lg,
+      ),
       decoration: const BoxDecoration(
         color: AppColors.surfaceContainerLowest,
         border: Border(
@@ -139,33 +193,54 @@ class _TopBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          if (showBackButton) ...[
+          IconButton(
+            tooltip: isNarrow
+                ? 'Abrir menú de navegación'
+                : (isSidebarVisible
+                    ? 'Ocultar menú lateral (Modo concentración)'
+                    : 'Mostrar menú lateral'),
+            icon: Icon(
+              isNarrow
+                  ? Icons.menu
+                  : (isSidebarVisible ? Icons.menu_open : Icons.menu),
+              size: 20,
+              color: AppColors.onSurface,
+            ),
+            onPressed: onMenuPressed,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          if (isNarrow) ...[
             IconButton(
+              tooltip: 'Volver a proyectos',
               icon: const Icon(Icons.arrow_back, size: 18),
               onPressed: onBack,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
-            const SizedBox(width: AppSpacing.sm),
+            const SizedBox(width: AppSpacing.xs),
           ],
           Flexible(
             child: Text(
               projectTitle,
               style: AppTypography.uiBodySm.copyWith(
                 color: AppColors.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           const Padding(
-            padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            padding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
             child: Text('/', style: TextStyle(color: AppColors.outline)),
           ),
-          Text(
-            sectionLabel,
-            style: AppTypography.uiBodySm.copyWith(
-              color: AppColors.onSurface,
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Text(
+              sectionLabel,
+              style: AppTypography.uiBodySm.copyWith(
+                color: AppColors.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -175,7 +250,6 @@ class _TopBar extends StatelessWidget {
 }
 
 /// Contenido por sección.
-/// Por ahora, placeholders. Se rellenan en sub-bloques siguientes.
 class _SectionContent extends StatelessWidget {
   final String projectId;
   final ProjectSection section;
@@ -194,6 +268,7 @@ class _SectionContent extends StatelessWidget {
       ProjectSection.glossary => GlossaryScreen(projectId: projectId),
       ProjectSection.relationships => RelationshipsScreen(projectId: projectId),
       ProjectSection.export => ImportExportScreen(projectId: projectId),
+      ProjectSection.about => AboutLegalScreen(projectId: projectId),
     };
   }
 }
@@ -231,28 +306,21 @@ class _OverviewPlaceholder extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.xl),
                   Text('Estadísticas', style: AppTypography.headlineSm),
                   const SizedBox(height: AppSpacing.md),
-                  Row(
-                    children: [
-                      _Stat(
-                        label: 'Capítulos',
-                        value:
-                            '${chaptersAsync.valueOrNull?.length ?? project.chapterCount}',
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _Stat(
-                        label: 'Personajes',
-                        value:
-                            '${charactersAsync.valueOrNull?.length ?? project.characterCount}',
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _Stat(
-                        label: 'Palabras',
-                        value:
-                            '${chaptersAsync.valueOrNull?.fold<int>(0, (total, chapter) => total + _wordCount(chapter.content)) ?? project.wordCount}',
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      _Stat(label: 'Género', value: project.genre ?? '—'),
-                    ],
+                  _OverviewStats(
+                    chapterCount:
+                        chaptersAsync.valueOrNull?.length ??
+                        project.chapterCount,
+                    characterCount:
+                        charactersAsync.valueOrNull?.length ??
+                        project.characterCount,
+                    wordCount:
+                        chaptersAsync.valueOrNull?.fold<int>(
+                          0,
+                          (total, chapter) =>
+                              total + _wordCount(chapter.content),
+                        ) ??
+                        project.wordCount,
+                    genre: project.genre ?? '—',
                   ),
                   const SizedBox(height: AppSpacing.xl),
                   _OverviewGuidance(
@@ -355,29 +423,81 @@ class _OverviewPill extends StatelessWidget {
   );
 }
 
-class _Stat extends StatelessWidget {
-  final String label;
-  final String value;
+class _OverviewStats extends StatelessWidget {
+  final int chapterCount;
+  final int characterCount;
+  final int wordCount;
+  final String genre;
 
-  const _Stat({required this.label, required this.value});
+  const _OverviewStats({
+    required this.chapterCount,
+    required this.characterCount,
+    required this.wordCount,
+    required this.genre,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label.toUpperCase(), style: AppTypography.labelXs),
-            const SizedBox(height: 4),
-            Text(value, style: AppTypography.headlineSm),
-          ],
-        ),
+    final stats = [
+      (label: 'Capítulos', value: '$chapterCount'),
+      (label: 'Personajes', value: '$characterCount'),
+      (label: 'Palabras', value: '$wordCount'),
+      (label: 'Género', value: genre),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 600;
+        if (isCompact) {
+          return Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: stats.map((stat) {
+              final itemWidth = (constraints.maxWidth - AppSpacing.sm) / 2;
+              return SizedBox(
+                width: itemWidth > 120 ? itemWidth : double.infinity,
+                child: _StatCard(label: stat.label, value: stat.value),
+              );
+            }).toList(),
+          );
+        }
+
+        return Row(
+          children: stats.map((stat) {
+            return Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+                child: _StatCard(label: stat.label, value: stat.value),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _StatCard({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label.toUpperCase(), style: AppTypography.labelXs),
+          const SizedBox(height: 4),
+          Text(value, style: AppTypography.headlineSm),
+        ],
       ),
     );
   }

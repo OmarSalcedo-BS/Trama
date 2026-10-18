@@ -10,12 +10,18 @@ class ProjectSidebar extends ConsumerWidget {
   final String projectId;
   final String projectTitle;
   final VoidCallback onBackToDashboard;
+  final VoidCallback? onCollapse;
+  final VoidCallback? onSectionSelected;
+  final double? width;
 
   const ProjectSidebar({
     super.key,
     required this.projectId,
     required this.projectTitle,
     required this.onBackToDashboard,
+    this.onCollapse,
+    this.onSectionSelected,
+    this.width = 260,
   });
 
   @override
@@ -23,7 +29,7 @@ class ProjectSidebar extends ConsumerWidget {
     final active = ref.watch(activeSectionProvider(projectId));
 
     return Container(
-      width: 260,
+      width: width,
       color: AppColors.surfaceContainerLowest,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -42,28 +48,46 @@ class ProjectSidebar extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                InkWell(
-                  onTap: onBackToDashboard,
-                  borderRadius: AppRadii.allSm,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.arrow_back,
-                          size: 14,
-                          color: AppColors.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Proyectos',
-                          style: AppTypography.labelXs.copyWith(
-                            color: AppColors.onSurfaceVariant,
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        onTap: onBackToDashboard,
+                        borderRadius: AppRadii.allSm,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.arrow_back,
+                                size: 14,
+                                color: AppColors.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Proyectos',
+                                style: AppTypography.labelXs.copyWith(
+                                  color: AppColors.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    if (onCollapse != null)
+                      IconButton(
+                        tooltip: 'Ocultar barra lateral',
+                        onPressed: onCollapse,
+                        icon: const Icon(
+                          Icons.keyboard_double_arrow_left,
+                          size: 18,
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
@@ -141,6 +165,13 @@ class ProjectSidebar extends ConsumerWidget {
                   isActive: active == ProjectSection.export,
                   onTap: () => _setSection(ref, ProjectSection.export),
                 ),
+                const _GroupLabel('Información'),
+                _SectionItem(
+                  section: ProjectSection.about,
+                  icon: Icons.info_outline,
+                  isActive: active == ProjectSection.about,
+                  onTap: () => _setSection(ref, ProjectSection.about),
+                ),
               ],
             ),
           ),
@@ -151,6 +182,7 @@ class ProjectSidebar extends ConsumerWidget {
 
   void _setSection(WidgetRef ref, ProjectSection section) {
     ref.read(activeSectionProvider(projectId).notifier).state = section;
+    onSectionSelected?.call();
   }
 }
 

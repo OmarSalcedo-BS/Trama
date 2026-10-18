@@ -22,6 +22,7 @@ desktop.ini
 .env
 .env.*
 !.env.example
+alpha_invites.csv
 
 # Firebase
 .firebase/
@@ -45,3 +46,8 @@ dist/
 .dist
 supabase/
 .supabase
+
+.scripts/
+scripts/
+
+alpha_invites
