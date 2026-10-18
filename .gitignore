@@ -22,6 +22,7 @@ desktop.ini
 .env
 .env.*
 !.env.example
+alpha_invites.csv
 
 # Firebase
 .firebase/
@@ -33,3 +34,20 @@ coverage/
 
 # Builds temporales
 *.log
+
+
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated_plugins.cmake
+macos/Flutter/GeneratedPluginRegistrant.swift
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugins.cmake
+
+dist/
+.dist
+supabase/
+.supabase
+
+.scripts/
+scripts/
+
+alpha_invites

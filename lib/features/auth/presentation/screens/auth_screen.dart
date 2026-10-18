@@ -34,6 +34,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    if (ref.read(authControllerProvider).isLoading) return;
     setState(() => _errorMessage = null);
 
     final email = _emailController.text.trim();
@@ -189,6 +190,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     hint: 'Mínimo 6 caracteres',
                     icon: Icons.lock_outline,
                     obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _submit(),
                   ),
 
                   // Mensaje de error
@@ -313,6 +316,8 @@ class _TextField extends StatelessWidget {
   final IconData icon;
   final bool obscureText;
   final TextInputType? keyboardType;
+  final TextInputAction textInputAction;
+  final ValueChanged<String>? onSubmitted;
 
   const _TextField({
     required this.controller,
@@ -321,6 +326,8 @@ class _TextField extends StatelessWidget {
     required this.icon,
     this.obscureText = false,
     this.keyboardType,
+    this.textInputAction = TextInputAction.next,
+    this.onSubmitted,
   });
 
   @override
@@ -334,6 +341,8 @@ class _TextField extends StatelessWidget {
           controller: controller,
           obscureText: obscureText,
           keyboardType: keyboardType,
+          textInputAction: textInputAction,
+          onSubmitted: onSubmitted,
           style: AppTypography.uiBodyMd,
           decoration: InputDecoration(
             hintText: hint,
